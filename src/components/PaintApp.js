@@ -11,6 +11,7 @@ const PaintApp = () => {
   const [selectedShape, setSelectedShape] = useState(null);
   const [selectedTool, setSelectedTool] = useState(SHAPES.RECTANGLE);
   const [isDrawing, setIsDrawing] = useState(false);
+  const [newShape, setNewShape] = useState(null);
   const transformerRef = useRef();
   
   // Log shape updates
@@ -32,11 +33,21 @@ const PaintApp = () => {
   };
 
   const handleMouseDown = (e) => {
-    if (selectedShape) return;
+    // Deselect when clicking empty area
+    const clickedOnEmpty = e.target === e.target.getStage();
+    if (clickedOnEmpty) {
+      setSelectedShape(null);
+      if (transformerRef.current) {
+        transformerRef.current.nodes([]);
+      }
+    }
+
+    if (selectedShape || !clickedOnEmpty) return;
 
     const pos = e.target.getStage().getPointerPosition();
-    const newShape = {
-      id: Date.now(),
+    const id = `shape-${Date.now()}`;
+    const shape = {
+      id,
       type: selectedTool,
       x: pos.x,
       y: pos.y,
@@ -46,48 +57,61 @@ const PaintApp = () => {
       fill: '#' + Math.floor(Math.random()*16777215).toString(16)
     };
 
-    setShapes([...shapes, newShape]);
+    setNewShape(shape);
+    setShapes([...shapes, shape]);
     setIsDrawing(true);
-    logShapeUpdate('create', newShape);
   };
 
   const handleMouseMove = (e) => {
-    if (!isDrawing) return;
+    if (!isDrawing || !newShape) return;
 
     const pos = e.target.getStage().getPointerPosition();
-    const lastShape = shapes[shapes.length - 1];
     
-    if (lastShape.type === SHAPES.RECTANGLE) {
-      const newShape = {
-        ...lastShape,
-        width: pos.x - lastShape.x,
-        height: pos.y - lastShape.y
+    if (newShape.type === SHAPES.RECTANGLE) {
+      const updatedShape = {
+        ...newShape,
+        width: pos.x - newShape.x,
+        height: pos.y - newShape.y
       };
-      setShapes(shapes.slice(0, -1).concat([newShape]));
-    } else if (lastShape.type === SHAPES.CIRCLE) {
-      const dx = pos.x - lastShape.x;
-      const dy = pos.y - lastShape.y;
+      setShapes(shapes.map(shape => 
+        shape.id === newShape.id ? updatedShape : shape
+      ));
+      setNewShape(updatedShape);
+    } else if (newShape.type === SHAPES.CIRCLE) {
+      const dx = pos.x - newShape.x;
+      const dy = pos.y - newShape.y;
       const radius = Math.sqrt(dx * dx + dy * dy);
-      const newShape = {
-        ...lastShape,
+      const updatedShape = {
+        ...newShape,
         radius
       };
-      setShapes(shapes.slice(0, -1).concat([newShape]));
+      setShapes(shapes.map(shape => 
+        shape.id === newShape.id ? updatedShape : shape
+      ));
+      setNewShape(updatedShape);
     }
   };
 
   const handleMouseUp = () => {
-    if (isDrawing) {
-      const lastShape = shapes[shapes.length - 1];
-      logShapeUpdate('modify', lastShape);
+    if (isDrawing && newShape) {
+      // Only log after shape is completely drawn
+      logShapeUpdate('create', newShape);
       setIsDrawing(false);
+      setNewShape(null);
     }
   };
 
   const handleShapeSelect = (shape) => {
+    if (!shape) return;
+    
     setSelectedShape(shape);
     if (transformerRef.current) {
-      transformerRef.current.nodes([shape]);
+      // Find the Konva node for the shape
+      const stage = transformerRef.current.getStage();
+      const selectedNode = stage.findOne('#' + shape.id);
+      if (selectedNode) {
+        transformerRef.current.nodes([selectedNode]);
+      }
     }
   };
 
@@ -103,9 +127,9 @@ const PaintApp = () => {
       ...shapes.find(s => s.id === node.id()),
       x: node.x(),
       y: node.y(),
-      width: node.width() * scaleX,
-      height: node.height() * scaleY,
-      radius: node.radius ? node.radius() * scaleX : 0
+      width: Math.abs(node.width() * scaleX),
+      height: Math.abs(node.height() * scaleY),
+      radius: node.radius ? Math.abs(node.radius() * scaleX) : 0
     };
 
     setShapes(shapes.map(shape => 
@@ -120,6 +144,9 @@ const PaintApp = () => {
       logShapeUpdate('delete', selectedShape);
       setShapes(shapes.filter(shape => shape.id !== selectedShape.id));
       setSelectedShape(null);
+      if (transformerRef.current) {
+        transformerRef.current.nodes([]);
+      }
     }
   };
 
@@ -161,7 +188,12 @@ const PaintApp = () => {
               return (
                 <Rect
                   key={shape.id}
-                  {...shape}
+                  id={shape.id}
+                  x={shape.x}
+                  y={shape.y}
+                  width={Math.abs(shape.width)}
+                  height={Math.abs(shape.height)}
+                  fill={shape.fill}
                   draggable
                   onClick={() => handleShapeSelect(shape)}
                   onDragEnd={handleTransformEnd}
@@ -172,7 +204,11 @@ const PaintApp = () => {
               return (
                 <Circle
                   key={shape.id}
-                  {...shape}
+                  id={shape.id}
+                  x={shape.x}
+                  y={shape.y}
+                  radius={shape.radius}
+                  fill={shape.fill}
                   draggable
                   onClick={() => handleShapeSelect(shape)}
                   onDragEnd={handleTransformEnd}
